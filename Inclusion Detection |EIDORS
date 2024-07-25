@@ -1,0 +1,42 @@
+% 30th May 2024 | Creating a model to detect inclusions from loaded data
+% Using TV for all instances 
+
+% Create a forward model with finer mesh
+imdl = mk_common_model('h2d1c', 16);
+imdl.fwd_model.nodes = imdl.fwd_model.nodes./2; % Increase mesh resolution
+
+% Modify the forward model for better numerical stability
+imdl.fwd_model.normalize_measurements = true;
+imdl.fwd_model.jacobian = @jacobian_perturb;
+imdl.fwd_model.system_mat = @system_mat_1st_order;
+imdl.fwd_model.jacobian_bkgnd.value = 0.1;
+
+% Assign stimulation and measurement patterns
+options = {'no_meas_current', 'no_rotate_meas'};
+[stim, meas_select] = mk_stim_patterns(16, 1, '{ad}', '{ad}', options, 1);
+imdl.fwd_model.stimulation = stim;
+imdl.fwd_model.meas_select = meas_select;
+
+% Load experimental data
+load('vhcon.mat'); % Load homogeneous experimental data
+load('vi3.mat'); % Load inclusion experimental data
+
+% Clear the cache before creating the inverse model
+eidors_cache('clear_all');
+
+% Create inverse model
+inv2d = eidors_obj('inv_model', 'EIT inverse');
+inv2d.reconst_type = 'difference';
+inv2d.jacobian_bkgnd.value = 1;
+inv2d.fwd_model = imdl.fwd_model;
+inv2d.solve = @inv_solve_diff_GN_one_step;
+inv2d.hyperparameter.value = 1e-4;
+inv2d.solve=       @inv_solve_TV_pdipm;
+inv2d.R_prior=     @prior_TV;
+inv2d.parameters.max_iterations= 5;
+inv2d.parameters.term_tolerance= 1e-3;
+
+% Solve and display reconstruction
+figure;
+imgr_exp = inv_solve(inv2d, vhcon, vi3);
+show_fem(imgr_exp);
